@@ -174,6 +174,13 @@ public class SimpleServerWithSwaggerUI extends Application {
         servletContextHandler.addFilter(corsFilterHolder, "/swagger.json", EnumSet.of(DispatcherType.REQUEST));
         servletContextHandler.addFilter(corsFilterHolder, "/api/*", EnumSet.of(DispatcherType.REQUEST));
 
+        // TODO:
+        // jdbi+HikariCP
+        // flyway
+        // oauth
+        // https
+        // logging
+
         server.start();
         server.join();
     }
