@@ -16,6 +16,7 @@ import org.eclipse.jetty.server.ServerConnector;
 import org.eclipse.jetty.servlet.FilterHolder;
 import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
+import org.flywaydb.core.Flyway;
 import org.glassfish.jersey.server.ResourceConfig;
 import org.glassfish.jersey.server.wadl.WadlFeature;
 import org.glassfish.jersey.servlet.ServletContainer;
@@ -46,7 +47,7 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.Application;
 import jakarta.ws.rs.core.MediaType;
 
-public class SimpleServerWithJdbi extends Application {
+public class SimpleServerWithFlyway extends Application {
 
     private Jdbi jdbi;
 
@@ -99,7 +100,7 @@ public class SimpleServerWithJdbi extends Application {
         }
     }
 
-    public SimpleServerWithJdbi(Jdbi jdbi) {
+    public SimpleServerWithFlyway(Jdbi jdbi) {
         this.jdbi = jdbi;
     }
 
@@ -122,18 +123,20 @@ public class SimpleServerWithJdbi extends Application {
         // doesn't happen here, though
         Logger.getLogger("org.glassfish.jersey.internal").setLevel(Level.SEVERE);
 
-        // create user jetty1 with encrypted password 'jetty1';
-        // grant all privileges on database jetty1 to jetty1;
-        // create table greetings (greeting char(255), added timestamp with time zone);
-        // grant all privileges on table greetings to  jetty1;
+        // create user jetty2 with encrypted password 'jetty2';
+        // grant all privileges on database jetty2 to jetty2;
         var dataSource = new PGSimpleDataSource();
         dataSource.setServerNames(new String[] { "localhost" });
-        dataSource.setDatabaseName("jetty1");
-        dataSource.setUser("jetty1");
-        dataSource.setPassword("jetty1");
+        dataSource.setDatabaseName("jetty2");
+        dataSource.setUser("jetty2");
+        dataSource.setPassword("jetty2");
         var hikariConfig = new HikariConfig();
         hikariConfig.setDataSource(dataSource);
-        Jdbi jdbi = Jdbi.create(new HikariDataSource(hikariConfig));
+        HikariDataSource hikariDataSource = new HikariDataSource(hikariConfig);
+        Jdbi jdbi = Jdbi.create(hikariDataSource);
+
+        Flyway flyway = Flyway.configure().dataSource(hikariDataSource).load();
+        flyway.migrate();
 
         int port = 9000;
         String apiPath = "api";
@@ -151,7 +154,7 @@ public class SimpleServerWithJdbi extends Application {
         server.setHandler(servletContextHandler);
 
         // add rest api endpoint
-        var application = ResourceConfig.forApplication(new SimpleServerWithJdbi(jdbi));
+        var application = ResourceConfig.forApplication(new SimpleServerWithFlyway(jdbi));
         var servletHolder = new ServletHolder(new ServletContainer(application));
         servletContextHandler.addServlet(servletHolder, apiPathSpec);
 
@@ -226,7 +229,6 @@ public class SimpleServerWithJdbi extends Application {
         servletContextHandler.addFilter(corsFilterHolder, apiPathSpec, EnumSet.of(DispatcherType.REQUEST));
 
         // TODO:
-        // flyway
         // oauth
         // https
         // logging

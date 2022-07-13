@@ -96,5 +96,11 @@
 			<version>42.4.0</version>
 		</dependency>
 
+		<!-- SimpleServerWithFlyway -->
+		<dependency>
+			<groupId>org.flywaydb</groupId>
+			<artifactId>flyway-maven-plugin</artifactId>
+			<version>8.5.13</version>
+		</dependency>
 	</dependencies>
 </project>
