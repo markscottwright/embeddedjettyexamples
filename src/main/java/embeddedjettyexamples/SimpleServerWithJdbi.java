@@ -6,10 +6,8 @@ import static java.util.stream.Collectors.toSet;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.time.LocalDateTime;
 import java.util.EnumSet;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -21,6 +19,11 @@ import org.eclipse.jetty.servlet.ServletHolder;
 import org.glassfish.jersey.server.ResourceConfig;
 import org.glassfish.jersey.server.wadl.WadlFeature;
 import org.glassfish.jersey.servlet.ServletContainer;
+import org.jdbi.v3.core.Jdbi;
+import org.postgresql.ds.PGSimpleDataSource;
+
+import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.HikariDataSource;
 
 import io.swagger.v3.core.util.Json;
 import io.swagger.v3.jaxrs2.Reader;
@@ -43,7 +46,9 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.Application;
 import jakarta.ws.rs.core.MediaType;
 
-public class SimpleServerWithSwaggerUI extends Application {
+public class SimpleServerWithJdbi extends Application {
+
+    private Jdbi jdbi;
 
     public static class Greeting {
         public String greeting;
@@ -51,7 +56,24 @@ public class SimpleServerWithSwaggerUI extends Application {
     }
 
     public static class Database {
-        AtomicReference<String> currentGreeting = new AtomicReference<String>("Hola " + LocalDateTime.now());
+        private Jdbi jdbi;
+
+        public Database(Jdbi jdbi) {
+            this.jdbi = jdbi;
+        }
+
+        public String getGreeting() {
+            return jdbi.withHandle(h -> {
+                return h.select("select greeting from greetings order by added desc limit 1").mapTo(String.class)
+                        .findOne();
+            }).orElse("Hi ya!");
+        }
+
+        public void addGreeting(String greeting) {
+            jdbi.useHandle(h -> {
+                h.execute("insert into greetings (greeting, added) values (?, current_timestamp)", greeting);
+            });
+        }
     }
 
     @Path("/hello")
@@ -65,16 +87,20 @@ public class SimpleServerWithSwaggerUI extends Application {
         @GET
         @Produces(MediaType.TEXT_PLAIN)
         public String getAGreeting() {
-            return database.currentGreeting.get();
+            return database.getGreeting();
         }
 
         @POST
         @Produces(MediaType.TEXT_PLAIN)
         @Consumes(MediaType.APPLICATION_JSON)
         public String setTheGreeting(Greeting greeting) {
-            database.currentGreeting.set(greeting.greeting + " " + greeting.repeat + " times");
-            return database.currentGreeting.get();
+            database.addGreeting(greeting.greeting);
+            return greeting.greeting;
         }
+    }
+
+    public SimpleServerWithJdbi(Jdbi jdbi) {
+        this.jdbi = jdbi;
     }
 
     @Override
@@ -84,7 +110,7 @@ public class SimpleServerWithSwaggerUI extends Application {
         // It can be disabled with one of these:
         // log4j.logger.org.glassfish.jersey.internal=OFF
         // log4j.logger.org.glassfish.jersey.internal.inject.Providers=ERROR
-        return Set.of(new SimpleResource(new Database()));
+        return Set.of(new SimpleResource(new Database(jdbi)));
     }
 
     public static void main(String[] args) throws Exception {
@@ -96,6 +122,19 @@ public class SimpleServerWithSwaggerUI extends Application {
 
         // doesn't happen here, though
         Logger.getLogger("org.glassfish.jersey.internal").setLevel(Level.SEVERE);
+
+        // create user jetty1 with encrypted password 'jetty1';
+        // grant all privileges on database jetty1 to jetty1;
+        // create table greetings (greeting char(255), added timestamp with time zone);
+        // grant all privileges on table greetings to  jetty1;
+        var dataSource = new PGSimpleDataSource();
+        dataSource.setServerNames(new String[] { "localhost" });
+        dataSource.setDatabaseName("jetty1");
+        dataSource.setUser("jetty1");
+        dataSource.setPassword("jetty1");
+        var hikariConfig = new HikariConfig();
+        hikariConfig.setDataSource(dataSource);
+        Jdbi jdbi = Jdbi.create(new HikariDataSource(hikariConfig));
 
         int port = 9000;
         String apiPath = "api";
@@ -113,7 +152,7 @@ public class SimpleServerWithSwaggerUI extends Application {
         server.setHandler(servletContextHandler);
 
         // add rest api endpoint
-        var application = ResourceConfig.forApplication(new SimpleServerWithSwaggerUI());
+        var application = ResourceConfig.forApplication(new SimpleServerWithJdbi(jdbi));
         var servletHolder = new ServletHolder(new ServletContainer(application));
         servletContextHandler.addServlet(servletHolder, apiPathSpec);
 
@@ -137,7 +176,8 @@ public class SimpleServerWithSwaggerUI extends Application {
 
         // add swagger-ui servlet
         // (this is incomplete - we should set media-types, cache ttls and compression.
-        // Also, we should safety check req.getRequestURI since it comes from the client)
+        // Also, we should safety check req.getRequestURI since it comes from the
+        // client)
         servletContextHandler.addServlet(new ServletHolder(new HttpServlet() {
             @Override
             protected void doGet(HttpServletRequest req, HttpServletResponse resp)
@@ -166,11 +206,17 @@ public class SimpleServerWithSwaggerUI extends Application {
             public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
                     throws IOException, ServletException {
                 String requestOrigin = ((HttpServletRequest) request).getHeader("Origin");
-                if (requestOrigin != null
-                        && requestOrigin.matches(originsAllowedToUseApi)) {
+                if (requestOrigin != null && requestOrigin.matches(originsAllowedToUseApi)) {
                     var responseWrapper = new HttpServletResponseWrapper((HttpServletResponse) response) {
                     };
                     responseWrapper.addHeader("Access-Control-Allow-Origin", requestOrigin);
+                    String requestedHeaders = ((HttpServletRequest) request)
+                            .getHeader("Access-Control-Request-Headers");
+                    String requestedMethod = ((HttpServletRequest) request).getHeader("Access-Control-Request-Method");
+                    if (requestedHeaders != null)
+                        responseWrapper.addHeader("Access-Control-Allow-Headers", requestedHeaders);
+                    if (requestedMethod != null)
+                        responseWrapper.addHeader("Access-Control-Allow-Methods", requestedMethod);
                     response = responseWrapper;
                 }
                 chain.doFilter(request, response);
@@ -181,7 +227,6 @@ public class SimpleServerWithSwaggerUI extends Application {
         servletContextHandler.addFilter(corsFilterHolder, apiPathSpec, EnumSet.of(DispatcherType.REQUEST));
 
         // TODO:
-        // jdbi+HikariCP
         // flyway
         // oauth
         // https

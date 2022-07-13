@@ -10,7 +10,6 @@
 		<slf4jVersion>1.7.32</slf4jVersion>
 		<jerseyVersion>3.0.5</jerseyVersion>
 		<jettyVersion>11.0.11</jettyVersion>
-		<!-- <jerseyVersion>2.36</jerseyVersion> <jettyVersion>9.4.48.v20220622</jettyVersion> -->
 	</properties>
 
 	<dependencies>
@@ -66,15 +65,36 @@
 			<version>${jerseyVersion}</version>
 		</dependency>
 
+		<!-- SimpleServerWithSwagger -->
 		<dependency>
 			<groupId>io.swagger.core.v3</groupId>
 			<artifactId>swagger-jaxrs2-jakarta</artifactId>
 			<version>2.2.0</version>
 		</dependency>
+
+		<!-- SimpleServerWithSwaggerUI -->
 		<dependency>
 			<groupId>org.webjars</groupId>
 			<artifactId>swagger-ui</artifactId>
 			<version>4.11.1</version>
 		</dependency>
+
+		<!-- SimpleServerWithJdbi -->
+		<dependency>
+			<groupId>org.jdbi</groupId>
+			<artifactId>jdbi3-sqlobject</artifactId>
+			<version>3.30.0</version>
+		</dependency>
+		<dependency>
+			<groupId>com.zaxxer</groupId>
+			<artifactId>HikariCP</artifactId>
+			<version>5.0.1</version>
+		</dependency>
+		<dependency>
+			<groupId>org.postgresql</groupId>
+			<artifactId>postgresql</artifactId>
+			<version>42.4.0</version>
+		</dependency>
+
 	</dependencies>
 </project>
