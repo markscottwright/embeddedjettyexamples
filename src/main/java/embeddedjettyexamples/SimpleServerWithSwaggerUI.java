@@ -166,11 +166,17 @@ public class SimpleServerWithSwaggerUI extends Application {
             public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
                     throws IOException, ServletException {
                 String requestOrigin = ((HttpServletRequest) request).getHeader("Origin");
-                if (requestOrigin != null
-                        && requestOrigin.matches(originsAllowedToUseApi)) {
+                if (requestOrigin != null && requestOrigin.matches(originsAllowedToUseApi)) {
                     var responseWrapper = new HttpServletResponseWrapper((HttpServletResponse) response) {
                     };
                     responseWrapper.addHeader("Access-Control-Allow-Origin", requestOrigin);
+                    String requestedHeaders = ((HttpServletRequest) request)
+                            .getHeader("Access-Control-Request-Headers");
+                    String requestedMethod = ((HttpServletRequest) request).getHeader("Access-Control-Request-Method");
+                    if (requestedHeaders != null)
+                        responseWrapper.addHeader("Access-Control-Allow-Headers", requestedHeaders);
+                    if (requestedMethod != null)
+                        responseWrapper.addHeader("Access-Control-Allow-Methods", requestedMethod);
                     response = responseWrapper;
                 }
                 chain.doFilter(request, response);
@@ -179,13 +185,6 @@ public class SimpleServerWithSwaggerUI extends Application {
         });
         servletContextHandler.addFilter(corsFilterHolder, swaggerPathSpec, EnumSet.of(DispatcherType.REQUEST));
         servletContextHandler.addFilter(corsFilterHolder, apiPathSpec, EnumSet.of(DispatcherType.REQUEST));
-
-        // TODO:
-        // jdbi+HikariCP
-        // flyway
-        // oauth
-        // https
-        // logging
 
         server.start();
         server.join();

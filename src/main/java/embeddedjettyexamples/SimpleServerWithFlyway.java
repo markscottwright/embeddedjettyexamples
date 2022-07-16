@@ -115,13 +115,12 @@ public class SimpleServerWithFlyway extends Application {
     }
 
     public static void main(String[] args) throws Exception {
-        // Disable uninteresting warning. keep a reference to this logger, or it gets
+        // Disable uninteresting warnings. keep a reference to loggers, or they get
         // gc'ed and the config change is lost
         Logger wadlLogger = Logger.getLogger(WadlFeature.class.getName());
         wadlLogger.setLevel(Level.SEVERE);
-
-        // doesn't happen here, though
-        Logger.getLogger("org.glassfish.jersey.internal").setLevel(Level.SEVERE);
+        Logger jerseyLogger = Logger.getLogger("org.glassfish.jersey.internal");
+        jerseyLogger.setLevel(Level.SEVERE);
 
         // create user jetty2 with encrypted password 'jetty2';
         // grant all privileges on database jetty2 to jetty2;

@@ -225,12 +225,6 @@ public class SimpleServerWithJdbi extends Application {
         servletContextHandler.addFilter(corsFilterHolder, swaggerPathSpec, EnumSet.of(DispatcherType.REQUEST));
         servletContextHandler.addFilter(corsFilterHolder, apiPathSpec, EnumSet.of(DispatcherType.REQUEST));
 
-        // TODO:
-        // flyway
-        // oauth
-        // https
-        // logging
-
         server.start();
         server.join();
     }
