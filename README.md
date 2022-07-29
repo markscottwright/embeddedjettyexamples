@@ -7,6 +7,7 @@ I wanted to see how far I could go reproducing something like Dropwizard with th
 - Startup speed should be as low as possible.  At most a second or two.
 - But a real web application, with Swagger, nice RESTful APIs, automatic database upgrades, etc.
 
+# Incremental Steps
 OneServlet
 : Demonstrate the simplest possible web server.
 
