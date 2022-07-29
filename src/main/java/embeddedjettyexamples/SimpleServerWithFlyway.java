@@ -49,7 +49,7 @@ import jakarta.ws.rs.core.MediaType;
 
 public class SimpleServerWithFlyway extends Application {
 
-    private Jdbi jdbi;
+    private Database database;
 
     public static class Greeting {
         public String greeting;
@@ -100,8 +100,8 @@ public class SimpleServerWithFlyway extends Application {
         }
     }
 
-    public SimpleServerWithFlyway(Jdbi jdbi) {
-        this.jdbi = jdbi;
+    public SimpleServerWithFlyway(Database database) {
+        this.database = database;
     }
 
     @Override
@@ -111,10 +111,13 @@ public class SimpleServerWithFlyway extends Application {
         // It can be disabled with one of these:
         // log4j.logger.org.glassfish.jersey.internal=OFF
         // log4j.logger.org.glassfish.jersey.internal.inject.Providers=ERROR
-        return Set.of(new SimpleResource(new Database(jdbi)));
+        return Set.of(new SimpleResource(database));
     }
 
     public static void main(String[] args) throws Exception {
+        // I prefer one line per log entry
+        System.setProperty("java.util.logging.SimpleFormatter.format", "%1$tF %1$tT.%1$tL %4$s %2$s %5$s%6$s%n");
+
         // Disable uninteresting warnings. keep a reference to loggers, or they get
         // gc'ed and the config change is lost
         Logger wadlLogger = Logger.getLogger(WadlFeature.class.getName());
@@ -132,7 +135,6 @@ public class SimpleServerWithFlyway extends Application {
         var hikariConfig = new HikariConfig();
         hikariConfig.setDataSource(dataSource);
         HikariDataSource hikariDataSource = new HikariDataSource(hikariConfig);
-        Jdbi jdbi = Jdbi.create(hikariDataSource);
 
         Flyway flyway = Flyway.configure().dataSource(hikariDataSource).load();
         flyway.migrate();
@@ -153,7 +155,8 @@ public class SimpleServerWithFlyway extends Application {
         server.setHandler(servletContextHandler);
 
         // add rest api endpoint
-        var application = ResourceConfig.forApplication(new SimpleServerWithFlyway(jdbi));
+        var application = ResourceConfig
+                .forApplication(new SimpleServerWithFlyway(new Database(Jdbi.create(hikariDataSource))));
         var servletHolder = new ServletHolder(new ServletContainer(application));
         servletContextHandler.addServlet(servletHolder, apiPathSpec);
 
@@ -227,10 +230,8 @@ public class SimpleServerWithFlyway extends Application {
         servletContextHandler.addFilter(corsFilterHolder, swaggerPathSpec, EnumSet.of(DispatcherType.REQUEST));
         servletContextHandler.addFilter(corsFilterHolder, apiPathSpec, EnumSet.of(DispatcherType.REQUEST));
 
-        // TODO:
-        // oauth
-        // https
-        // logging
+        // TODO: oauth
+        // TODO: https
 
         server.start();
         server.join();

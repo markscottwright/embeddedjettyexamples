@@ -12,7 +12,9 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.regex.Pattern;
 
+import org.eclipse.jetty.server.Response;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.ServerConnector;
 import org.eclipse.jetty.servlet.FilterHolder;
@@ -88,7 +90,6 @@ public class SimpleServerWithSwaggerUI extends Application {
     }
 
     public static void main(String[] args) throws Exception {
-
         // Disable uninteresting warning. keep a reference to this logger, or it gets
         // gc'ed and the config change is lost
         Logger wadlLogger = Logger.getLogger(WadlFeature.class.getName());
@@ -137,11 +138,19 @@ public class SimpleServerWithSwaggerUI extends Application {
 
         // add swagger-ui servlet
         // (this is incomplete - we should set media-types, cache ttls and compression.
-        // Also, we should safety check req.getRequestURI since it comes from the client)
+        // Also, we should safety check req.getRequestURI since it comes from the
+        // client)
         servletContextHandler.addServlet(new ServletHolder(new HttpServlet() {
             @Override
             protected void doGet(HttpServletRequest req, HttpServletResponse resp)
                     throws ServletException, IOException {
+                if (Pattern.compile("[^a-zA-Z0-9./-]|\\.\\.|//").matcher(req.getRequestURI()).find()) {
+                    resp.setStatus(Response.SC_FORBIDDEN);
+                    Logger.getLogger(getClass().getName()).info("Bad request from " + req.getRemoteAddr() + ":"
+                            + req.getRemotePort() + ":[" + req.getRequestURI() + "]");
+                    return;
+                }
+
                 // serve contents of swagger-ui webjar, but replace URL with ours
                 String resourcePath = "/META-INF/resources/webjars" + req.getRequestURI();
                 var swaggerUiFile = getClass().getResourceAsStream(resourcePath);
