@@ -32,7 +32,7 @@ import jakarta.ws.rs.core.MediaType;
 
 import static java.util.stream.Collectors.toSet;
 
-public class SimpleServerWithSwagger extends Application {
+public class SimpleServer1WithSwagger extends Application {
 
     public static class Greeting {
         public String greeting;
@@ -100,7 +100,7 @@ public class SimpleServerWithSwagger extends Application {
         server.setHandler(servletContextHandler);
 
         // add rest api endpoint
-        var application = ResourceConfig.forApplication(new SimpleServerWithSwagger());
+        var application = ResourceConfig.forApplication(new SimpleServer1WithSwagger());
         var servletHolder = new ServletHolder(new ServletContainer(application));
         servletContextHandler.addServlet(servletHolder, "/api/*");
 

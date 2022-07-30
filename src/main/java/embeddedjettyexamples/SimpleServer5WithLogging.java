@@ -11,15 +11,18 @@ import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import org.eclipse.jetty.server.CustomRequestLog;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.ServerConnector;
 import org.eclipse.jetty.servlet.FilterHolder;
 import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
+import org.flywaydb.core.Flyway;
 import org.glassfish.jersey.server.ResourceConfig;
 import org.glassfish.jersey.server.wadl.WadlFeature;
 import org.glassfish.jersey.servlet.ServletContainer;
 import org.jdbi.v3.core.Jdbi;
+import org.jdbi.v3.core.statement.Slf4JSqlLogger;
 import org.postgresql.ds.PGSimpleDataSource;
 
 import com.zaxxer.hikari.HikariConfig;
@@ -46,9 +49,9 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.Application;
 import jakarta.ws.rs.core.MediaType;
 
-public class SimpleServerWithJdbi extends Application {
+public class SimpleServer5WithLogging extends Application {
 
-    private Jdbi jdbi;
+    private Database database;
 
     public static class Greeting {
         public String greeting;
@@ -99,8 +102,8 @@ public class SimpleServerWithJdbi extends Application {
         }
     }
 
-    public SimpleServerWithJdbi(Jdbi jdbi) {
-        this.jdbi = jdbi;
+    public SimpleServer5WithLogging(Database database) {
+        this.database = database;
     }
 
     @Override
@@ -110,30 +113,41 @@ public class SimpleServerWithJdbi extends Application {
         // It can be disabled with one of these:
         // log4j.logger.org.glassfish.jersey.internal=OFF
         // log4j.logger.org.glassfish.jersey.internal.inject.Providers=ERROR
-        return Set.of(new SimpleResource(new Database(jdbi)));
+        return Set.of(new SimpleResource(database));
     }
 
     public static void main(String[] args) throws Exception {
-        // Disable uninteresting warning. keep a reference to this logger, or it gets
+        // #1
+        // I prefer one line per log entry
+        System.setProperty("java.util.logging.SimpleFormatter.format", "%1$tF %1$tT.%1$tL %4$s %2$s %5$s%6$s%n");
+
+        // #2
+        // By default, there's only one handler - a console one at WARNING. Which means
+        // no matter what we set the Loggers to, we'll never see anything because the
+        // Handler will ignore it. Change the handler to log everything the Loggers are
+        // set to log
+        Logger.getLogger("").getHandlers()[0].setLevel(Level.FINEST);
+
+        // #3
+        // Disable uninteresting warnings. keep a reference to loggers, or they get
         // gc'ed and the config change is lost
         Logger wadlLogger = Logger.getLogger(WadlFeature.class.getName());
         wadlLogger.setLevel(Level.SEVERE);
+        Logger jerseyLogger = Logger.getLogger("org.glassfish.jersey.internal");
+        jerseyLogger.setLevel(Level.SEVERE);
 
-        // doesn't happen here, though
-        Logger.getLogger("org.glassfish.jersey.internal").setLevel(Level.SEVERE);
-
-        // create user jetty1 with encrypted password 'jetty1';
-        // grant all privileges on database jetty1 to jetty1;
-        // create table greetings (greeting char(255), added timestamp with time zone);
-        // grant all privileges on table greetings to  jetty1;
+        // create user jetty2 with encrypted password 'jetty2';
+        // grant all privileges on database jetty2 to jetty2;
         var dataSource = new PGSimpleDataSource();
         dataSource.setServerNames(new String[] { "localhost" });
-        dataSource.setDatabaseName("jetty1");
-        dataSource.setUser("jetty1");
-        dataSource.setPassword("jetty1");
+        dataSource.setDatabaseName("jetty2");
+        dataSource.setUser("jetty2");
+        dataSource.setPassword("jetty2");
         var hikariConfig = new HikariConfig();
         hikariConfig.setDataSource(dataSource);
-        Jdbi jdbi = Jdbi.create(new HikariDataSource(hikariConfig));
+        var hikariDataSource = new HikariDataSource(hikariConfig);
+
+        Flyway.configure().dataSource(hikariDataSource).load().migrate();
 
         int port = 9000;
         String apiPath = "api";
@@ -150,13 +164,16 @@ public class SimpleServerWithJdbi extends Application {
         servletContextHandler.setContextPath("/");
         server.setHandler(servletContextHandler);
 
+        var jdbi = Jdbi.create(hikariDataSource);
+
         // add rest api endpoint
-        var application = ResourceConfig.forApplication(new SimpleServerWithJdbi(jdbi));
+        var application = ResourceConfig
+                .forApplication(new SimpleServer5WithLogging(new Database(jdbi)));
         var servletHolder = new ServletHolder(new ServletContainer(application));
         servletContextHandler.addServlet(servletHolder, apiPathSpec);
 
         // add swagger definition servlet - note that this could be easily pre-computed
-        Reader reader = new Reader(new SwaggerConfiguration()) {
+        var reader = new Reader(new SwaggerConfiguration()) {
             @Override
             protected String resolveApplicationPath() {
                 return apiPath;
@@ -224,6 +241,19 @@ public class SimpleServerWithJdbi extends Application {
         });
         servletContextHandler.addFilter(corsFilterHolder, swaggerPathSpec, EnumSet.of(DispatcherType.REQUEST));
         servletContextHandler.addFilter(corsFilterHolder, apiPathSpec, EnumSet.of(DispatcherType.REQUEST));
+
+        // #4
+        // Log access requests in standard web server format
+        server.setRequestLog(new CustomRequestLog());
+
+        // #5
+        // enable SQL statement logging
+        Logger jdbiLogger = Logger.getLogger("org.jdbi.sql");
+        jdbiLogger.setLevel(Level.FINE);
+        jdbi.setSqlLogger(new Slf4JSqlLogger());
+
+        // TODO: oauth
+        // TODO: https
 
         server.start();
         server.join();

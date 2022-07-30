@@ -14,20 +14,20 @@ OneServlet
 SimpleRestServer
 : Demonstrate the simplest possible RESTful server.
 
-SimpleServerWithSwagger
+SimpleServer1WithSwagger
 : Add a Swagger/OpenAPI endpoint to SimpleRestServer
 
-SimpleServerWithSwaggerUI
+SimpleServer2WithSwaggerUI
 : Host a SwaggerUI endpoint and add the necessary CORS headers to allow it to access our API
 
-SimpleServerWithJdbi
+SimpleServer3WithJdbi
 : Add a database to our example, using JDBI, because ORMs are, in my experience, always more
   trouble than they're worth.
 
-SimpleServerWithFlyway
+SimpleServer4WithFlyway
 : Add database migrations
 
-SimpleServerWithLogging
+SimpleServer5WithLogging
 : Set up the logger to ignore some irrelevant errors, log SQL statements and log HTTP access
 
 # What's left
@@ -37,6 +37,7 @@ SimpleServerWithLogging
 - I'd like to show how to auto-renew with letsencrypt.com
 - Kubernetes-compatible health-checks
 - Pagination?
+- Rate-limiting?
 - mTLS authentication?  I am a PKI guy...
 - Dockerfile + picocli for configuration
 - Version resource, populated by Maven

@@ -6,25 +6,23 @@ import static java.util.stream.Collectors.toSet;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
 import java.util.EnumSet;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.regex.Pattern;
 
+import org.eclipse.jetty.server.Response;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.ServerConnector;
 import org.eclipse.jetty.servlet.FilterHolder;
 import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
-import org.flywaydb.core.Flyway;
 import org.glassfish.jersey.server.ResourceConfig;
+import org.glassfish.jersey.server.wadl.WadlFeature;
 import org.glassfish.jersey.servlet.ServletContainer;
-import org.jdbi.v3.core.Jdbi;
-import org.jdbi.v3.core.statement.Slf4JSqlLogger;
-import org.postgresql.ds.PGSimpleDataSource;
-
-import com.zaxxer.hikari.HikariConfig;
-import com.zaxxer.hikari.HikariDataSource;
 
 import io.swagger.v3.core.util.Json;
 import io.swagger.v3.jaxrs2.Reader;
@@ -47,9 +45,7 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.Application;
 import jakarta.ws.rs.core.MediaType;
 
-public class SimpleServerWithFlyway extends Application {
-
-    private Database database;
+public class SimpleServer2WithSwaggerUI extends Application {
 
     public static class Greeting {
         public String greeting;
@@ -57,24 +53,7 @@ public class SimpleServerWithFlyway extends Application {
     }
 
     public static class Database {
-        private Jdbi jdbi;
-
-        public Database(Jdbi jdbi) {
-            this.jdbi = jdbi;
-        }
-
-        public String getGreeting() {
-            return jdbi.withHandle(h -> {
-                return h.select("select greeting from greetings order by added desc limit 1").mapTo(String.class)
-                        .findOne();
-            }).orElse("Hi ya!");
-        }
-
-        public void addGreeting(String greeting) {
-            jdbi.useHandle(h -> {
-                h.execute("insert into greetings (greeting, added) values (?, current_timestamp)", greeting);
-            });
-        }
+        AtomicReference<String> currentGreeting = new AtomicReference<String>("Hola " + LocalDateTime.now());
     }
 
     @Path("/hello")
@@ -88,20 +67,16 @@ public class SimpleServerWithFlyway extends Application {
         @GET
         @Produces(MediaType.TEXT_PLAIN)
         public String getAGreeting() {
-            return database.getGreeting();
+            return database.currentGreeting.get();
         }
 
         @POST
         @Produces(MediaType.TEXT_PLAIN)
         @Consumes(MediaType.APPLICATION_JSON)
         public String setTheGreeting(Greeting greeting) {
-            database.addGreeting(greeting.greeting);
-            return greeting.greeting;
+            database.currentGreeting.set(greeting.greeting + " " + greeting.repeat + " times");
+            return database.currentGreeting.get();
         }
-    }
-
-    public SimpleServerWithFlyway(Database database) {
-        this.database = database;
     }
 
     @Override
@@ -111,22 +86,17 @@ public class SimpleServerWithFlyway extends Application {
         // It can be disabled with one of these:
         // log4j.logger.org.glassfish.jersey.internal=OFF
         // log4j.logger.org.glassfish.jersey.internal.inject.Providers=ERROR
-        return Set.of(new SimpleResource(database));
+        return Set.of(new SimpleResource(new Database()));
     }
 
     public static void main(String[] args) throws Exception {
-        // create user jetty2 with encrypted password 'jetty2';
-        // grant all privileges on database jetty2 to jetty2;
-        var dataSource = new PGSimpleDataSource();
-        dataSource.setServerNames(new String[] { "localhost" });
-        dataSource.setDatabaseName("jetty2");
-        dataSource.setUser("jetty2");
-        dataSource.setPassword("jetty2");
-        var hikariConfig = new HikariConfig();
-        hikariConfig.setDataSource(dataSource);
-        var hikariDataSource = new HikariDataSource(hikariConfig);
+        // Disable uninteresting warning. keep a reference to this logger, or it gets
+        // gc'ed and the config change is lost
+        Logger wadlLogger = Logger.getLogger(WadlFeature.class.getName());
+        wadlLogger.setLevel(Level.SEVERE);
 
-        Flyway.configure().dataSource(hikariDataSource).load().migrate();
+        // doesn't happen here, though
+        Logger.getLogger("org.glassfish.jersey.internal").setLevel(Level.SEVERE);
 
         int port = 9000;
         String apiPath = "api";
@@ -144,16 +114,12 @@ public class SimpleServerWithFlyway extends Application {
         server.setHandler(servletContextHandler);
 
         // add rest api endpoint
-        var jdbi = Jdbi.create(hikariDataSource);
-        Logger jdbiLogger = Logger.getLogger("org.jdbi.sql");
-        jdbiLogger.setLevel(Level.FINE);
-        jdbi.setSqlLogger(new Slf4JSqlLogger());
-        var application = ResourceConfig.forApplication(new SimpleServerWithFlyway(new Database(jdbi)));
+        var application = ResourceConfig.forApplication(new SimpleServer2WithSwaggerUI());
         var servletHolder = new ServletHolder(new ServletContainer(application));
         servletContextHandler.addServlet(servletHolder, apiPathSpec);
 
         // add swagger definition servlet - note that this could be easily pre-computed
-        var reader = new Reader(new SwaggerConfiguration()) {
+        Reader reader = new Reader(new SwaggerConfiguration()) {
             @Override
             protected String resolveApplicationPath() {
                 return apiPath;
@@ -178,6 +144,13 @@ public class SimpleServerWithFlyway extends Application {
             @Override
             protected void doGet(HttpServletRequest req, HttpServletResponse resp)
                     throws ServletException, IOException {
+                if (Pattern.compile("[^a-zA-Z0-9./-]|\\.\\.|//").matcher(req.getRequestURI()).find()) {
+                    resp.setStatus(Response.SC_FORBIDDEN);
+                    Logger.getLogger(getClass().getName()).info("Bad request from " + req.getRemoteAddr() + ":"
+                            + req.getRemotePort() + ":[" + req.getRequestURI() + "]");
+                    return;
+                }
+
                 // serve contents of swagger-ui webjar, but replace URL with ours
                 String resourcePath = "/META-INF/resources/webjars" + req.getRequestURI();
                 var swaggerUiFile = getClass().getResourceAsStream(resourcePath);
@@ -221,9 +194,6 @@ public class SimpleServerWithFlyway extends Application {
         });
         servletContextHandler.addFilter(corsFilterHolder, swaggerPathSpec, EnumSet.of(DispatcherType.REQUEST));
         servletContextHandler.addFilter(corsFilterHolder, apiPathSpec, EnumSet.of(DispatcherType.REQUEST));
-
-        // TODO: oauth
-        // TODO: https
 
         server.start();
         server.join();

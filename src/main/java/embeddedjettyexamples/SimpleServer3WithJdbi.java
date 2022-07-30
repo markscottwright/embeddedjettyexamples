@@ -6,15 +6,11 @@ import static java.util.stream.Collectors.toSet;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.time.LocalDateTime;
 import java.util.EnumSet;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import java.util.regex.Pattern;
 
-import org.eclipse.jetty.server.Response;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.ServerConnector;
 import org.eclipse.jetty.servlet.FilterHolder;
@@ -23,6 +19,11 @@ import org.eclipse.jetty.servlet.ServletHolder;
 import org.glassfish.jersey.server.ResourceConfig;
 import org.glassfish.jersey.server.wadl.WadlFeature;
 import org.glassfish.jersey.servlet.ServletContainer;
+import org.jdbi.v3.core.Jdbi;
+import org.postgresql.ds.PGSimpleDataSource;
+
+import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.HikariDataSource;
 
 import io.swagger.v3.core.util.Json;
 import io.swagger.v3.jaxrs2.Reader;
@@ -45,7 +46,9 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.Application;
 import jakarta.ws.rs.core.MediaType;
 
-public class SimpleServerWithSwaggerUI extends Application {
+public class SimpleServer3WithJdbi extends Application {
+
+    private Jdbi jdbi;
 
     public static class Greeting {
         public String greeting;
@@ -53,7 +56,24 @@ public class SimpleServerWithSwaggerUI extends Application {
     }
 
     public static class Database {
-        AtomicReference<String> currentGreeting = new AtomicReference<String>("Hola " + LocalDateTime.now());
+        private Jdbi jdbi;
+
+        public Database(Jdbi jdbi) {
+            this.jdbi = jdbi;
+        }
+
+        public String getGreeting() {
+            return jdbi.withHandle(h -> {
+                return h.select("select greeting from greetings order by added desc limit 1").mapTo(String.class)
+                        .findOne();
+            }).orElse("Hi ya!");
+        }
+
+        public void addGreeting(String greeting) {
+            jdbi.useHandle(h -> {
+                h.execute("insert into greetings (greeting, added) values (?, current_timestamp)", greeting);
+            });
+        }
     }
 
     @Path("/hello")
@@ -67,16 +87,20 @@ public class SimpleServerWithSwaggerUI extends Application {
         @GET
         @Produces(MediaType.TEXT_PLAIN)
         public String getAGreeting() {
-            return database.currentGreeting.get();
+            return database.getGreeting();
         }
 
         @POST
         @Produces(MediaType.TEXT_PLAIN)
         @Consumes(MediaType.APPLICATION_JSON)
         public String setTheGreeting(Greeting greeting) {
-            database.currentGreeting.set(greeting.greeting + " " + greeting.repeat + " times");
-            return database.currentGreeting.get();
+            database.addGreeting(greeting.greeting);
+            return greeting.greeting;
         }
+    }
+
+    public SimpleServer3WithJdbi(Jdbi jdbi) {
+        this.jdbi = jdbi;
     }
 
     @Override
@@ -86,7 +110,7 @@ public class SimpleServerWithSwaggerUI extends Application {
         // It can be disabled with one of these:
         // log4j.logger.org.glassfish.jersey.internal=OFF
         // log4j.logger.org.glassfish.jersey.internal.inject.Providers=ERROR
-        return Set.of(new SimpleResource(new Database()));
+        return Set.of(new SimpleResource(new Database(jdbi)));
     }
 
     public static void main(String[] args) throws Exception {
@@ -97,6 +121,19 @@ public class SimpleServerWithSwaggerUI extends Application {
 
         // doesn't happen here, though
         Logger.getLogger("org.glassfish.jersey.internal").setLevel(Level.SEVERE);
+
+        // create user jetty1 with encrypted password 'jetty1';
+        // grant all privileges on database jetty1 to jetty1;
+        // create table greetings (greeting char(255), added timestamp with time zone);
+        // grant all privileges on table greetings to  jetty1;
+        var dataSource = new PGSimpleDataSource();
+        dataSource.setServerNames(new String[] { "localhost" });
+        dataSource.setDatabaseName("jetty1");
+        dataSource.setUser("jetty1");
+        dataSource.setPassword("jetty1");
+        var hikariConfig = new HikariConfig();
+        hikariConfig.setDataSource(dataSource);
+        Jdbi jdbi = Jdbi.create(new HikariDataSource(hikariConfig));
 
         int port = 9000;
         String apiPath = "api";
@@ -114,7 +151,7 @@ public class SimpleServerWithSwaggerUI extends Application {
         server.setHandler(servletContextHandler);
 
         // add rest api endpoint
-        var application = ResourceConfig.forApplication(new SimpleServerWithSwaggerUI());
+        var application = ResourceConfig.forApplication(new SimpleServer3WithJdbi(jdbi));
         var servletHolder = new ServletHolder(new ServletContainer(application));
         servletContextHandler.addServlet(servletHolder, apiPathSpec);
 
@@ -144,13 +181,6 @@ public class SimpleServerWithSwaggerUI extends Application {
             @Override
             protected void doGet(HttpServletRequest req, HttpServletResponse resp)
                     throws ServletException, IOException {
-                if (Pattern.compile("[^a-zA-Z0-9./-]|\\.\\.|//").matcher(req.getRequestURI()).find()) {
-                    resp.setStatus(Response.SC_FORBIDDEN);
-                    Logger.getLogger(getClass().getName()).info("Bad request from " + req.getRemoteAddr() + ":"
-                            + req.getRemotePort() + ":[" + req.getRequestURI() + "]");
-                    return;
-                }
-
                 // serve contents of swagger-ui webjar, but replace URL with ours
                 String resourcePath = "/META-INF/resources/webjars" + req.getRequestURI();
                 var swaggerUiFile = getClass().getResourceAsStream(resourcePath);
