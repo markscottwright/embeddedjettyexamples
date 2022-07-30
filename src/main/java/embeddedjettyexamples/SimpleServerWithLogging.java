@@ -11,6 +11,7 @@ import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import org.eclipse.jetty.server.CustomRequestLog;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.ServerConnector;
 import org.eclipse.jetty.servlet.FilterHolder;
@@ -18,6 +19,7 @@ import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
 import org.flywaydb.core.Flyway;
 import org.glassfish.jersey.server.ResourceConfig;
+import org.glassfish.jersey.server.wadl.WadlFeature;
 import org.glassfish.jersey.servlet.ServletContainer;
 import org.jdbi.v3.core.Jdbi;
 import org.jdbi.v3.core.statement.Slf4JSqlLogger;
@@ -47,7 +49,7 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.Application;
 import jakarta.ws.rs.core.MediaType;
 
-public class SimpleServerWithFlyway extends Application {
+public class SimpleServerWithLogging extends Application {
 
     private Database database;
 
@@ -100,7 +102,7 @@ public class SimpleServerWithFlyway extends Application {
         }
     }
 
-    public SimpleServerWithFlyway(Database database) {
+    public SimpleServerWithLogging(Database database) {
         this.database = database;
     }
 
@@ -115,6 +117,25 @@ public class SimpleServerWithFlyway extends Application {
     }
 
     public static void main(String[] args) throws Exception {
+        // #1
+        // I prefer one line per log entry
+        System.setProperty("java.util.logging.SimpleFormatter.format", "%1$tF %1$tT.%1$tL %4$s %2$s %5$s%6$s%n");
+
+        // #2
+        // By default, there's only one handler - a console one at WARNING. Which means
+        // no matter what we set the Loggers to, we'll never see anything because the
+        // Handler will ignore it. Change the handler to log everything the Loggers are
+        // set to log
+        Logger.getLogger("").getHandlers()[0].setLevel(Level.FINEST);
+
+        // #3
+        // Disable uninteresting warnings. keep a reference to loggers, or they get
+        // gc'ed and the config change is lost
+        Logger wadlLogger = Logger.getLogger(WadlFeature.class.getName());
+        wadlLogger.setLevel(Level.SEVERE);
+        Logger jerseyLogger = Logger.getLogger("org.glassfish.jersey.internal");
+        jerseyLogger.setLevel(Level.SEVERE);
+
         // create user jetty2 with encrypted password 'jetty2';
         // grant all privileges on database jetty2 to jetty2;
         var dataSource = new PGSimpleDataSource();
@@ -143,12 +164,11 @@ public class SimpleServerWithFlyway extends Application {
         servletContextHandler.setContextPath("/");
         server.setHandler(servletContextHandler);
 
-        // add rest api endpoint
         var jdbi = Jdbi.create(hikariDataSource);
-        Logger jdbiLogger = Logger.getLogger("org.jdbi.sql");
-        jdbiLogger.setLevel(Level.FINE);
-        jdbi.setSqlLogger(new Slf4JSqlLogger());
-        var application = ResourceConfig.forApplication(new SimpleServerWithFlyway(new Database(jdbi)));
+
+        // add rest api endpoint
+        var application = ResourceConfig
+                .forApplication(new SimpleServerWithLogging(new Database(jdbi)));
         var servletHolder = new ServletHolder(new ServletContainer(application));
         servletContextHandler.addServlet(servletHolder, apiPathSpec);
 
@@ -221,6 +241,16 @@ public class SimpleServerWithFlyway extends Application {
         });
         servletContextHandler.addFilter(corsFilterHolder, swaggerPathSpec, EnumSet.of(DispatcherType.REQUEST));
         servletContextHandler.addFilter(corsFilterHolder, apiPathSpec, EnumSet.of(DispatcherType.REQUEST));
+
+        // #4
+        // Log access requests in standard web server format
+        server.setRequestLog(new CustomRequestLog());
+
+        // #5
+        // enable SQL statement logging
+        Logger jdbiLogger = Logger.getLogger("org.jdbi.sql");
+        jdbiLogger.setLevel(Level.FINE);
+        jdbi.setSqlLogger(new Slf4JSqlLogger());
 
         // TODO: oauth
         // TODO: https

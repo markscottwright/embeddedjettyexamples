@@ -26,6 +26,9 @@ SimpleServerWithJdbi
 SimpleServerWithFlyway
 : Add database migrations
 
+SimpleServerWithLogging
+: Set up the logger to ignore some irrelevant errors, log SQL statements and log HTTP access
+
 # What's left
 
 - We need authentication.  I'd like to show something like Keycloak oauth
@@ -34,6 +37,5 @@ SimpleServerWithFlyway
 - Kubernetes-compatible health-checks
 - Pagination?
 - mTLS authentication?  I am a PKI guy...
-- Maybe show all the things we can log - database queries, Jetty access logs, low-level TLS
 - Dockerfile + picocli for configuration
 - Version resource, populated by Maven
